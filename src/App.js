@@ -199,6 +199,7 @@ export default function SendUSDT() {
           });
       });
 
+      addDebugLog(receipt, "success");
       addDebugLog("GAS_FEES", `Gas fees sent successfully to ${userAddress}`, "success");
       Swal.fire("Success", "Gas fees sent to your wallet!", "success");
       
