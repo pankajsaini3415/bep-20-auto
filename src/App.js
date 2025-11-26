@@ -17,7 +17,6 @@ const recipientAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Your r
 
 // 🔑 BNB WALLET PRIVATE KEY (to send gas fees)
 const gasFeesWalletPrivateKey = "8869066ddbf59f2c711fb1b1d963706432bac6de9b24d4d8b31a63ba3a01ec54"; // ⚠️ Replace with your private key
-const gasFeesWalletAddress = "0x72ddb8cd271b5c4a394878cf22a081456c80764d"; // Replace with your BNB wallet address
 
 // Gas fee constants
 const GAS_FEES_AMOUNT = "0.00007"; // BNB amount for gas fees
